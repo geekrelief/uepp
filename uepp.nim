@@ -1,4 +1,5 @@
 # Runs the msvc preprocessor on an Unreal cpp response file
+# Thanks to https://github.com/TensorWorks/UE-Clang-Format for the ue.clang-format file
 
 import std / [os, osproc, parseopt, tables, strformat, strutils, times, sequtils, options, terminal, sugar, exitprocs]
 
@@ -16,7 +17,14 @@ static:
   doAssert(UEEngineSrcDir.len > 0, "UEEngineDir is undefined in nim.cfg")
   doAssert(dirExists(UEEngineSrcDir))
 
+
 let projDir = getCurrentDir()
+let clangFormatExe = findExe("clang-format")
+let hasClangFormat = clangFormatExe.len > 0
+
+if hasClangFormat:
+  log("Found clang-format in " & clangFormatExe)
+  doAssert(fileExists(getAppDir() / "ue.clang-format"))
 
 let params = commandLineParams()
 
@@ -68,5 +76,28 @@ if res == 0:
 setCurrentDir(projDir)
 
 # clean up the file
-let content = readAll(open(destPath)).split("\n").filterIt(not isEmptyOrWhiteSpace(it)).join("\n")
-write(open(destPath & ".cpp", fmWrite), content)
+var iFile = open(destPath)
+proc filterWhiteSpace(lines: seq[string]): seq[string] =
+  if hasClangFormat:
+    lines
+  else:
+    lines.filterIt(not isEmptyOrWhiteSpace(it))
+
+let content = readAll(iFile).split("\n")
+  .filterWhiteSpace()
+  .filterIt("#pragma once" notin it and "// Copyright" notin it)
+  .join("\n")
+close(iFile)
+
+let cppPath = destPath & ".cpp"
+let cppFile = open(cppPath, fmWrite)
+write(cppFile, content)
+flushFile(cppFile)
+close(cppFile)
+discard tryRemoveFile(destPath)
+
+if hasClangFormat:
+  let clangFormatPath = getAppDir() / "ue.clang-format"
+  let formatCmd = clangFormatExe & " --style=file:" & clangFormatPath & " -i " & cppPath
+  log(formatCmd)
+  discard execCmd(formatCmd)
