@@ -19,6 +19,9 @@ The output will appear in a folder named `.\preprocessed` where the command is r
 If you have llvm installed, uepp, will use clang-format to format the output. Based on 
 https://github.com/TensorWorks/UE-Clang-Format .clang-format
 
-Added `uepp`'s directory to your PATH for convenience.
 
-You'll need to modify the nim.cfg for the path to the Unreal Engine's Source folder.
+Modify the nim.cfg for the path to the Unreal Engine's Source folder.
+
+Build with `nimble build`
+
+Added `uepp`'s directory to your PATH for convenience.
