@@ -1,13 +1,16 @@
 # Runs the msvc preprocessor on an Unreal cpp response file
 # Thanks to https://github.com/TensorWorks/UE-Clang-Format for the ue.clang-format file
 
-import std / [os, osproc, parseopt, tables, strformat, strutils, times, sequtils, options, terminal, sugar, exitprocs]
+import std / [
+os, osproc, sequtils, strformat, strutils, terminal
+]
+import spinny
 
 proc log(msg: string) =
   stdout.styledWrite(styleBright, msg & "\n")
 
 proc logError(msg:string) =
-  stderr.styledWrite(styleBright, fgRed, msg & "\n")
+  stderr.styledWrite(styleBright, terminal.fgRed, msg & "\n")
 
 const preprocessedDir = "preprocessed"
 const UEEngineSrcDir {.strdefine.}: string = ""
@@ -17,8 +20,6 @@ static:
   doAssert(UEEngineSrcDir.len > 0, "UEEngineDir is undefined in nim.cfg")
   doAssert(dirExists(UEEngineSrcDir))
 
-
-let projDir = getCurrentDir()
 let clangFormatExe = findExe("clang-format")
 let hasClangFormat = clangFormatExe.len > 0
 
@@ -59,23 +60,36 @@ var destPath: string = destDir / filename & (if withShadow: ".shadow" else: "") 
 createDir(destDir)
 doAssert(dirExists(destDir))
 
+# adjust response file contents
 let rspContents = 
   if withShadow:
     rspPath.lines.toseq().join(" ")
   else:
     rspPath.lines.toseq().filterIt(not it.contains("SharedPCH.Engine.ShadowErrors.h")).join(" ")
 
-let cmd = &"vccexe.exe --platform:amd64 /P /C /Fi\"{destPath}\" " & rspContents & &" /D__midl={midl}"
-
+let projDir = getCurrentDir()
 setCurrentDir(UEEngineSrcDir)
-log(&"--- Preprocessing")
-let res = execCmd(cmd)
-if res == 0:
-  log(&"Generated: {destPath}\n")
 
+var spinner1 = newSpinny("Preprocessing " & destPath.fgWhite, skHearts)
+spinner1.setSymbolColor(spinny.fgBlue)
+spinner1.start()
+
+let res = execCmd(&"vccexe.exe --platform:amd64 /P /C /Fi\"{destPath}\" " & rspContents & &" /D__midl={midl}")
 setCurrentDir(projDir)
 
-# clean up the file
+if res == 0:
+  spinner1.success(&"Generated: {destPath}")
+else:
+  spinner1.error(&"Could not generate: {destPath}")
+  quit(QuitFailure)
+
+# cleanup and formatting
+let cppPath = destPath & ".cpp"
+
+var spinner2 = newSpinny("Formatting " & cppPath.fgWhite, skMonkey)
+spinner2.setSymbolColor(spinny.fgBlue)
+spinner2.start()
+
 var iFile = open(destPath)
 proc filterWhiteSpace(lines: seq[string]): seq[string] =
   if hasClangFormat:
@@ -83,21 +97,29 @@ proc filterWhiteSpace(lines: seq[string]): seq[string] =
   else:
     lines.filterIt(not isEmptyOrWhiteSpace(it))
 
-let content = readAll(iFile).split("\n")
-  .filterWhiteSpace()
-  .filterIt("#pragma once" notin it and "// Copyright" notin it)
-  .join("\n")
-close(iFile)
+try:
+  let content = readAll(iFile).split("\n")
+    .filterWhiteSpace()
+    .filterIt("#pragma once" notin it and "// Copyright" notin it)
+    .join("\n")
+  close(iFile)
 
-let cppPath = destPath & ".cpp"
-let cppFile = open(cppPath, fmWrite)
-write(cppFile, content)
-flushFile(cppFile)
-close(cppFile)
-discard tryRemoveFile(destPath)
+  let cppFile = open(cppPath, fmWrite)
+  write(cppFile, content)
+  flushFile(cppFile)
+  close(cppFile)
+  discard tryRemoveFile(destPath)
 
-if hasClangFormat:
-  let clangFormatPath = getAppDir() / "ue.clang-format"
-  let formatCmd = clangFormatExe & " --style=file:" & clangFormatPath & " -i " & cppPath
-  log(formatCmd)
-  discard execCmd(formatCmd)
+  if hasClangFormat:
+    let clangFormatPath = getAppDir() / "ue.clang-format"
+    let formatCmd = clangFormatExe & " --style=file:\"" & clangFormatPath & "\" -i \"" & cppPath & "\""
+
+    let res = execCmd(formatCmd)
+    if res == 0:
+      spinner2.success("Formatting " & cppPath.fgWhite & " complete!")
+    else:
+      spinner2.error("Formatting " & cppPath.fgWhite & " failed!")
+  else:
+    spinner2.success("Formatting " & cppPath.fgWhite & " complete!")
+except IOError as e:
+  spinner2.error("Formatting " & cppPath.fgWhite & " failed!\n" & e.msg)
