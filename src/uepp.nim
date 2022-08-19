@@ -2,30 +2,56 @@
 # Thanks to https://github.com/TensorWorks/UE-Clang-Format for the ue.clang-format file
 
 import std / [
-os, osproc, sequtils, strformat, strutils, terminal
+os, osproc, sequtils, strformat, strscans, strutils, terminal
 ]
 import spinny
 
-proc log(msg: string) =
-  stdout.styledWrite(styleBright, msg & "\n")
+enableTrueColors()
+
+proc log(msg: string, fgColor: terminal.ForegroundColor = fgWhite) =
+  stdout.styledWrite(fgColor, msg & "\n")
 
 proc logError(msg:string) =
-  stderr.styledWrite(styleBright, terminal.fgRed, msg & "\n")
+  stderr.styledWrite(terminal.fgRed, styleBright, msg & "\n")
 
 const preprocessedDir = "preprocessed"
 const UEEngineSrcDir {.strdefine.}: string = ""
 const midl {.intdefine.}: int = 0
 
+const ClangMinimumVersion = 14
+
 static:
   doAssert(UEEngineSrcDir.len > 0, "UEEngineDir is undefined in nim.cfg")
   doAssert(dirExists(UEEngineSrcDir))
+  doAssert(UEEngineSrcDir.lastPathPart() == "Source", "UEEngineDir path must contain the Source folder.")
+
+
 
 let clangFormatExe = findExe("clang-format")
-let hasClangFormat = clangFormatExe.len > 0
+let (hasClangFormat, clangVersion) =
+  if clangFormatExe.len > 0:
+    # version check
+    let verOutStr = execProcess(clangFormatExe & " --version")
+    var
+      major: int
+      minor: int
+      revision: int
+    var res = verOutStr.scanf("clang-format version $i.$i.$i", major, minor, revision)
+    if res:
+      (major >= ClangMinimumVersion, &"{major}.{minor}.{revision}")
+    else:
+      (false, "")
+  else:
+    (false, "")
 
 if hasClangFormat:
-  log("Found clang-format in " & clangFormatExe)
+  log(&"Found clang-format version {clangVersion} in {clangFormatExe}", terminal.fgGreen)
   doAssert(fileExists(getAppDir() / "ue.clang-format"))
+else:
+  if clangVersion.len > 0:
+    logError(&"Old clang-format version {clangVersion} in {clangFormatExe}, but needs updating to {ClangMinimumVersion}.")
+  else:
+    logError(&"clang-format not found or version too old. Using basic cleanup mode.")
 
 let params = commandLineParams()
 
@@ -33,7 +59,7 @@ proc printUsage() =
   log("""Usage: uepp [-with-shadow] response_file
   The response_file contains the source and flags needed to preprocess the source file.
   If the -with-shadow option is used, includes "SharedPCH.Engine.ShadowErrors.h"
-  Example: uepp ./TestActor.rsp
+  Example: uepp ./TestActor.response
   """)
   quit()
 
