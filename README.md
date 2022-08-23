@@ -1,8 +1,6 @@
 # Overview
 uepp uses the MSVC toolchain with nim to preprocess an Unreal Engine C++ file.
 
-Running the command requires one response file.
-
 ---
 ## Usage
 For example:

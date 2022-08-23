@@ -5,6 +5,7 @@ import std / [
 os, osproc, sequtils, strformat, strscans, strutils, terminal
 ]
 import spinny
+import enums
 
 enableTrueColors()
 
@@ -149,3 +150,31 @@ try:
     spinner2.success("Formatting " & cppPath.fgWhite & " complete!")
 except IOError as e:
   spinner2.error("Formatting " & cppPath.fgWhite & " failed!\n" & e.msg)
+
+
+# annotate the enums
+var spinner3 = newSpinny("Annotating enums" & cppPath.fgWhite, skRunner)
+spinner3.start()
+
+var lines: seq[string]
+var i:int
+for line in cppPath.lines:
+  inc i
+  lines.add line
+  var flagType:string
+  var flagValue:int
+  if line.strip().scanf("($*)0x$h", flagType, flagValue):
+    var flags: Flags = decodeEnumValue(flagType, flagValue)
+    if flags.len > 0:
+      var names: string = flags.mapIt(it.name).join(" | ")
+      var desc: string = flags.mapIt(it.name & ": " & it.description).join("\n")
+      lines.add &"/*\n({flagType}){flagValue:#X} = {names}\n{desc}\n*/"
+      i = i + 4 + flags.len
+    else:
+      logError(&"Unable to decode: {line} {i} {flagType} {flagValue}")
+
+let cppFile = open(cppPath, fmWrite)
+write(cppFile, lines.join("\n"))
+flushFile(cppFile)
+close(cppFile)
+spinner3.success("Annotating complete!")
